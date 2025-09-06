@@ -528,8 +528,9 @@ class MainOrchestrator:
             # Clean up section_images after successful video production
             self.cleanup_after_video()
             
-            # Show completion message
-            messagebox.showinfo("Success!", f"Music video generated successfully!\n\nSaved as: {output_video}")
+            # Update step status to green (completed)
+            self.step_labels[1].config(text=f"✅ 2. Video Generation with Circular Visualizer", fg=self.colors['success'])
+            self.update_status(f"🎉 Music video generated successfully: {output_video}")
             
         except Exception as e:
             self.update_status(f"❌ Error: {str(e)}")
@@ -585,17 +586,57 @@ class MainOrchestrator:
             return original_file
     
     def _run_ffmpeg_with_progress(self, cmd, duration, description):
-        """Run FFmpeg command with simple status updates"""
+        """Run FFmpeg command with simple status updates (hidden window)"""
         
         self.update_status(f"⚙️ {description}...")
         
-        # Run FFmpeg normally without complex progress parsing
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        # Hide FFmpeg command window on Windows
+        startupinfo = None
+        if os.name == 'nt':  # Windows
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+        
+        # Run FFmpeg with hidden window
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, startupinfo=startupinfo)
         
         if result.returncode != 0:
             raise Exception(f"{description} failed: {result.stderr}")
         
         self.update_status(f"✅ {description} complete!")
+    
+    def _get_optimized_video_params(self, target_quality='balanced'):
+        """Get optimized FFmpeg parameters for smaller file sizes"""
+        
+        if target_quality == 'small':
+            # Smallest file size (~10-15MB for 3min video)
+            return [
+                '-crf', '30',           # Lower quality for smaller size
+                '-preset', 'medium',    # Balanced speed/compression
+                '-tune', 'animation',   # Better for visualizer content
+                '-c:a', 'aac', '-b:a', '96k',  # Lower audio bitrate
+                '-r', '15'              # Half frame rate for visualizer
+            ]
+        elif target_quality == 'balanced':
+            # Good quality/size balance (~15-25MB for 3min video)
+            return [
+                '-crf', '26',           # Slightly lower quality for smaller size
+                '-preset', 'medium',    # Balanced encoding
+                '-tune', 'animation',   # Optimized for graphics
+                '-c:a', 'aac', '-b:a', '128k',  # Standard audio quality
+                '-r', '20'              # Reduced frame rate for smaller files
+            ]
+        elif target_quality == 'high':
+            # High quality (~40-50MB for 3min video)
+            return [
+                '-crf', '20',           # High quality
+                '-preset', 'slow',      # Better compression
+                '-tune', 'animation',   # Graphics optimization
+                '-c:a', 'aac', '-b:a', '160k'  # Higher audio quality
+            ]
+        else:
+            # Default balanced settings
+            return ['-crf', '23', '-preset', 'medium', '-tune', 'animation']
     
     def generate_circular_visualizer_video(self, audio_file):
         """Generate video with background.png and circular white visualizer"""
@@ -603,17 +644,27 @@ class MainOrchestrator:
         try:
             self.update_status("Getting audio duration...")
             
-            # Step 1: Get audio duration using ffprobe
+            # Step 1: Get audio duration using ffprobe (hidden window)
+            startupinfo = None
+            if os.name == 'nt':  # Windows
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
+                
             result = subprocess.run([
                 'ffprobe', '-v', 'error', '-show_entries', 
                 'format=duration', '-of', 'csv=p=0', audio_file
-            ], capture_output=True, text=True, timeout=30)
+            ], capture_output=True, text=True, timeout=30, startupinfo=startupinfo)
             
             if result.returncode != 0:
                 raise Exception(f"ffprobe failed: {result.stderr}")
             
             duration = float(result.stdout.strip())
             self.update_status(f"Audio duration: {duration:.2f} seconds")
+            
+            # Get optimized encoding parameters
+            opt_params = self._get_optimized_video_params('balanced')
+            self.update_status("Using balanced quality settings for optimal file size")
             
             # Step 2: Create basic background video
             basic_video = "basic_video.mp4"
@@ -625,10 +676,9 @@ class MainOrchestrator:
                 '-t', str(duration),
                 '-pix_fmt', 'yuv420p',
                 '-r', '30',
-                '-s', '1920x1080',
-                basic_video
-            ]
-            self._run_ffmpeg_with_progress(cmd, duration, "Creating basic video with background")
+                '-s', '1920x1080'
+            ] + opt_params + [basic_video]
+            self._run_ffmpeg_with_progress(cmd, duration, "Creating optimized background video")
             
             # Step 3: Create white waveform visualization (1080x1080, pure white)
             viz_video = "song_viz.mp4"
@@ -638,11 +688,11 @@ class MainOrchestrator:
                 '-filter_complex', 
                 'showwaves=mode=line:s=1080x1080:colors=0xFFFFFF[v]',
                 '-map', '[v]',
+                '-c:v', 'libx264',
                 '-pix_fmt', 'yuv420p',
-                '-r', '30',
-                viz_video
-            ]
-            self._run_ffmpeg_with_progress(cmd, duration, "Creating white waveform visualization")
+                '-r', '30'
+            ] + opt_params + [viz_video]
+            self._run_ffmpeg_with_progress(cmd, duration, "Creating optimized white waveform")
             
             # Step 4: Create circular visualization
             circle_viz = "song_viz_circle.mp4"
@@ -651,14 +701,16 @@ class MainOrchestrator:
                 '-i', viz_video,
                 '-filter_complex',
                 "geq='p(mod((2*W/(2*PI))*(PI+atan2(0.5*H-Y,X-W/2)),W), H-2*hypot(0.5*H-Y,X-W/2))'",
+                '-c:v', 'libx264',
                 '-pix_fmt', 'yuv420p',
-                '-r', '30',
-                circle_viz
-            ]
-            self._run_ffmpeg_with_progress(cmd, duration, "Creating circular visualization")
+                '-r', '30'
+            ] + opt_params + [circle_viz]
+            self._run_ffmpeg_with_progress(cmd, duration, "Creating optimized circular visualization")
             
-            # Step 5: Overlay circular visualizer on background video
-            final_output = "final_music_video.mp4"
+            # Step 5: Overlay circular visualizer on background video - output to desktop
+            desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+            timestamp = __import__('datetime').datetime.now().strftime("%Y%m%d_%H%M%S")
+            final_output = os.path.join(desktop_path, f"music_video_{timestamp}.mp4")
             cmd = [
                 'ffmpeg', '-y',
                 '-i', basic_video,
@@ -667,17 +719,18 @@ class MainOrchestrator:
                 '[1:v]colorkey=Black:0.1:0.1[ck];[0:v][ck]overlay=(W-w)/2:(H-h)/2[outv]',
                 '-map', '[outv]',
                 '-map', '0:a',
-                '-pix_fmt', 'yuv420p',
-                final_output
-            ]
-            self._run_ffmpeg_with_progress(cmd, duration, "Combining background with circular visualizer")
+                '-c:v', 'libx264',
+                '-pix_fmt', 'yuv420p'
+            ] + opt_params + [final_output]
+            self._run_ffmpeg_with_progress(cmd, duration, "Creating final optimized video")
             
-            # Keep intermediate files for debugging if needed
-            self.update_status(f"DEBUG: Created files - {basic_video}, {viz_video}, {circle_viz}")
+            # Clean up temporary files after successful completion
+            temp_files = [basic_video, viz_video, circle_viz, "processed_audio.wav"]
+            self.cleanup_temp_files(temp_files)
             
             if os.path.exists(final_output):
                 file_size = os.path.getsize(final_output)
-                self.update_status(f"DEBUG: Final video size: {file_size} bytes")
+                self.update_status(f"✅ Final video size: {file_size // (1024*1024)}MB saved to Desktop")
             
             self.update_status("Circular visualizer video complete!")
             return final_output
@@ -925,6 +978,22 @@ class MainOrchestrator:
         self.update_status(f"✅ Total images verified: {found_images}")
         return True
     
+    def cleanup_temp_files(self, temp_files):
+        """Clean up temporary files after video generation"""
+        
+        try:
+            cleaned_count = 0
+            for temp_file in temp_files:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                    cleaned_count += 1
+            
+            if cleaned_count > 0:
+                self.update_status(f"🗑️ Cleaned up {cleaned_count} temporary files")
+                
+        except Exception as e:
+            self.update_status(f"⚠️ Cleanup warning: {e}")
+    
     def cleanup_after_video(self):
         """Clean up section_images folder after successful video production"""
         
@@ -936,13 +1005,6 @@ class MainOrchestrator:
                 self.update_status("🧹 Cleaning up image files...")
                 shutil.rmtree(images_dir)
                 self.update_status("✅ Image cleanup complete!")
-            
-            # Also clean up any temporary audio files
-            temp_files = ["processed_audio.wav"]
-            for temp_file in temp_files:
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-                    self.update_status(f"🗑️ Removed temporary file: {temp_file}")
                     
         except Exception as e:
             self.update_status(f"⚠️ Cleanup warning: {e}")
