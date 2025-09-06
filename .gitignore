@@ -1,0 +1,66 @@
+# Audio files
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.aac
+*.ogg
+*.wma
+
+# Video files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Image cache directories
+section_images/
+images/
+cache/
+
+# Log files
+*.log
+error.log
+debug.log
+
+# Backup files
+*.bak
+*.backup

@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip show:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(run_audio_processor.bat)",
+      "Bash(cmd /c:*)",
+      "Bash(timeout:*)",
+      "Bash(del test_gui_basic.py test_dependencies.py test_gui_startup.py final_test.py)",
+      "Bash(dir)",
+      "Bash(del /q test_*.py final_test.py)",
+      "Bash(del \"C:\\project 2025\\music\\test_simplified_json.py\")",
+      "Bash(del test_simplified_json.py)",
+      "WebSearch",
+      "WebFetch(domain:unsplash.com)",
+      "Bash(dir:*)",
+      "Bash(taskkill:*)",
+      "Bash(del \"C:\\project 2025\\music\\test_video_gen.py\")",
+      "WebFetch(domain:ffmpeg.org)",
+      "Bash(del test_visualizer.py)",
+      "Bash(del \"C:\\project 2025\\music\\test_api_loading.py\")",
+      "Bash(del test_api_loading.py)",
+      "Bash(del:*)",
+      "Bash(ffprobe:*)",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
