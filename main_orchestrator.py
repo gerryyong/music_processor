@@ -529,7 +529,7 @@ class MainOrchestrator:
             self.cleanup_after_video()
             
             # Update step status to green (completed)
-            self.step_labels[1].config(text=f"✅ 2. Video Generation with Circular Visualizer", fg=self.colors['success'])
+            self.step_labels[1].config(text=f"✅  2. Video Generation with Circular Visualizer", fg=self.colors['success'])
             self.update_status(f"🎉 Music video generated successfully: {output_video}")
             
         except Exception as e:
@@ -598,7 +598,7 @@ class MainOrchestrator:
             startupinfo.wShowWindow = subprocess.SW_HIDE
         
         # Run FFmpeg with hidden window
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, startupinfo=startupinfo)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800, startupinfo=startupinfo)
         
         if result.returncode != 0:
             raise Exception(f"{description} failed: {result.stderr}")
@@ -666,67 +666,58 @@ class MainOrchestrator:
             opt_params = self._get_optimized_video_params('balanced')
             self.update_status("Using balanced quality settings for optimal file size")
             
-            # Step 2: Create basic background video
-            basic_video = "basic_video.mp4"
-            cmd = [
-                'ffmpeg', '-y',
-                '-loop', '1', '-i', 'background.png',
-                '-i', audio_file,
-                '-c:v', 'libx264',
-                '-t', str(duration),
-                '-pix_fmt', 'yuv420p',
-                '-r', '30',
-                '-s', '1920x1080'
-            ] + opt_params + [basic_video]
-            self._run_ffmpeg_with_progress(cmd, duration, "Creating optimized background video")
-            
-            # Step 3: Create white waveform visualization (1080x1080, pure white)
-            viz_video = "song_viz.mp4"
-            cmd = [
-                'ffmpeg', '-y',
-                '-i', audio_file,
-                '-filter_complex', 
-                'showwaves=mode=line:s=1080x1080:colors=0xFFFFFF[v]',
-                '-map', '[v]',
-                '-c:v', 'libx264',
-                '-pix_fmt', 'yuv420p',
-                '-r', '30'
-            ] + opt_params + [viz_video]
-            self._run_ffmpeg_with_progress(cmd, duration, "Creating optimized white waveform")
-            
-            # Step 4: Create circular visualization
-            circle_viz = "song_viz_circle.mp4"
-            cmd = [
-                'ffmpeg', '-y',
-                '-i', viz_video,
-                '-filter_complex',
-                "geq='p(mod((2*W/(2*PI))*(PI+atan2(0.5*H-Y,X-W/2)),W), H-2*hypot(0.5*H-Y,X-W/2))'",
-                '-c:v', 'libx264',
-                '-pix_fmt', 'yuv420p',
-                '-r', '30'
-            ] + opt_params + [circle_viz]
-            self._run_ffmpeg_with_progress(cmd, duration, "Creating optimized circular visualization")
-            
-            # Step 5: Overlay circular visualizer on background video - output to desktop
             desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
             timestamp = __import__('datetime').datetime.now().strftime("%Y%m%d_%H%M%S")
             final_output = os.path.join(desktop_path, f"music_video_{timestamp}.mp4")
+
+            # This command uses a "green screen" technique for maximum control and quality.
             cmd = [
                 'ffmpeg', '-y',
-                '-i', basic_video,
-                '-i', circle_viz,
+                '-loop', '1', '-i', 'background.png', # Input 0: Background image
+                '-i', audio_file,                   # Input 1: Audio file
                 '-filter_complex',
-                '[1:v]colorkey=Black:0.1:0.1[ck];[0:v][ck]overlay=(W-w)/2:(H-h)/2[outv]',
+                # --- The Inversion Filter Chain ---
+                
+                # 1. Generate a pure, bright GREEN waveform on a black background.
+                '[1:a]showwaves=s=1080x1080:mode=line:colors=lime[waves_green];' +
+                
+                # 2. Warp the green waveform into a circle.
+                "[waves_green]geq='p(mod((2*W/(2*PI))*(PI+atan2(0.5*H-Y,X-W/2)),W), H-2*hypot(0.5*H-Y,X-W/2))'[circle_green];" +
+                
+                # 3. Key out the black background.
+                '[circle_green]colorkey=black:0.1:0[keyed_green];' +
+                
+                # 4. This step reliably creates our PURE BLACK shape.
+                '[keyed_green]lutyuv=y=235:u=128:v=128[keyed_black];' +
+                
+                # 5. THE FIX: Invert the black shape to get a PURE WHITE shape.
+                '[keyed_black]negate[keyed_white];' +
+                
+                # 6. Overlay the final, clean, white visualizer onto the background.
+                '[0:v][keyed_white]overlay=(W-w)/2:(H-h)/2,format=yuv420p[outv]',
+                
+                # --- End of Filter Chain ---
+
                 '-map', '[outv]',
-                '-map', '0:a',
+                '-map', '1:a',
                 '-c:v', 'libx264',
-                '-pix_fmt', 'yuv420p'
+                
+                # --- Encoder Flags to ensure the final white is not clamped to grey ---
+                '-color_range', 'pc',
+                '-colorspace', 'bt709',
+                '-color_primaries', 'bt709',
+                '-color_trc', 'bt709',
+                
+                '-t', str(duration),
+                '-s', '1920x1080'
             ] + opt_params + [final_output]
-            self._run_ffmpeg_with_progress(cmd, duration, "Creating final optimized video")
+
+            self._run_ffmpeg_with_progress(cmd, duration, "Creating final video in a single pass")
+            
             
             # Clean up temporary files after successful completion
-            temp_files = [basic_video, viz_video, circle_viz, "processed_audio.wav"]
-            self.cleanup_temp_files(temp_files)
+            # temp_files = [basic_video, viz_video, circle_viz, "processed_audio.wav"]
+            self.cleanup_temp_files(["processed_audio.wav"])
             
             if os.path.exists(final_output):
                 file_size = os.path.getsize(final_output)
